@@ -229,22 +229,8 @@ export default function LoginPage() {
             </p>
           )}
 
-          {/* Google */}
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="flex h-[52px] w-full items-center justify-center gap-3 rounded-xl bg-white text-[15px] font-semibold text-black transition-all duration-200 hover:scale-[1.02] hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-            style={{
-              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.25)",
-            }}
-          >
-            <GoogleIcon className="h-5 w-5 shrink-0" />
-            Continuar com Google
-          </button>
-
           {/* Divider */}
-          <div className="relative my-8">
+          <div className="relative mb-8">
             <div
               className="absolute inset-0 flex items-center"
               aria-hidden="true"
@@ -330,9 +316,25 @@ export default function LoginPage() {
           </p>
 
           {/* Footer */}
-          <p className="mt-8 text-center text-xs leading-relaxed text-zinc-500">
+          <p className="mt-6 text-center text-xs leading-relaxed text-zinc-500">
             🔒 Seus dados estão seguros e criptografados
           </p>
+
+          {/* Google — abaixo de tudo */}
+          <div className="mt-12 pt-2">
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="flex h-[52px] w-full items-center justify-center gap-3 rounded-xl bg-white text-[15px] font-semibold text-black transition-all duration-200 hover:scale-[1.02] hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+              style={{
+                boxShadow: "0 4px 20px rgba(0, 0, 0, 0.25)",
+              }}
+            >
+              <GoogleIcon className="h-5 w-5 shrink-0" />
+              Continuar com Google
+            </button>
+          </div>
         </div>
       </div>
     </>
