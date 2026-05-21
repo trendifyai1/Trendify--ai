@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const benefits = [
   {
     icon: "🧠",
@@ -162,18 +164,18 @@ export default function Home() {
             Trendify AI
           </a>
           <div className="flex items-center gap-3">
-            <a
-              href="#"
+            <Link
+              href="/login"
               className="hidden rounded-full px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white sm:inline-block"
             >
               Login
-            </a>
-            <a
-              href="#precos"
+            </Link>
+            <Link
+              href="/login"
               className="rounded-full bg-[#7C3AED] px-5 py-2 text-sm font-semibold text-white shadow-[0_0_24px_rgba(124,58,237,0.45)] transition-all hover:bg-[#6D28D9] hover:shadow-[0_0_32px_rgba(124,58,237,0.6)]"
             >
               Começar grátis
-            </a>
+            </Link>
           </div>
         </div>
       </nav>
@@ -204,13 +206,13 @@ export default function Home() {
             Reels e Shorts.
           </p>
 
-          <a
-            href="#precos"
+          <Link
+            href="/login"
             className="mt-10 inline-flex items-center gap-2 rounded-full bg-[#7C3AED] px-8 py-4 text-base font-bold text-white shadow-[0_0_40px_rgba(124,58,237,0.5)] transition-all hover:scale-105 hover:bg-[#6D28D9] hover:shadow-[0_0_56px_rgba(124,58,237,0.65)]"
           >
             <LightningIcon className="h-5 w-5" />
             Começar grátis
-          </a>
+          </Link>
 
           <PhoneMockups />
         </div>
