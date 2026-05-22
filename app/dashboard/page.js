@@ -1,8 +1,10 @@
+"use client";
 
 import { useState } from "react";
 import Link from "next/link";
 
 const menu = [
+  "Dashboard",
   "Upload Video",
   "Viral Clips",
   "AI Captions",
@@ -18,15 +20,50 @@ const stats = [
 ];
 
 const recentClips = [
-  { title: "POV: isso viralizou 🔥", score: 94, gradient: "from-violet-600 to-fuchsia-600" },
-  { title: "plot twist inesperado", score: 87, gradient: "from-purple-800 to-indigo-900" },
-  { title: "salva pra depois ✨", score: 91, gradient: "from-fuchsia-600 to-orange-500" },
+  {
+    id: "1",
+    title: "POV: isso viralizou 🔥",
+    score: 94,
+    gradient: "from-violet-600 to-fuchsia-600",
+  },
+  {
+    id: "2",
+    title: "plot twist inesperado",
+    score: 87,
+    gradient: "from-purple-800 to-indigo-900",
+  },
+  {
+    id: "3",
+    title: "salva pra depois ✨",
+    score: 91,
+    gradient: "from-fuchsia-600 to-orange-500",
+  },
 ];
 
 function LightningIcon({ className }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
       <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+    </svg>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg
+      className="h-5 w-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
     </svg>
   );
 }
@@ -36,16 +73,15 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-screen bg-[#0B0B0B] text-white">
-      {sidebarOpen && (
+      {sidebarOpen ? (
         <button
           type="button"
           aria-label="Fechar menu"
           className="fixed inset-0 z-40 bg-black/60 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
-      )}
+      ) : null}
 
-      {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-zinc-800 bg-[#0B0B0B] transition-transform lg:static lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -59,12 +95,12 @@ export default function DashboardPage() {
         </div>
 
         <nav className="flex-1 space-y-1 p-3">
-          {menu.map((item, i) => (
+          {menu.map((item, index) => (
             <button
               key={item}
               type="button"
               className={`w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                i === 0
+                index === 0
                   ? "bg-[#7C3AED]/15 text-[#A78BFA]"
                   : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
               }`}
@@ -87,7 +123,6 @@ export default function DashboardPage() {
         </div>
       </aside>
 
-      {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-4 sm:px-6">
           <div className="flex items-center gap-3">
@@ -97,9 +132,7 @@ export default function DashboardPage() {
               className="rounded-lg border border-zinc-800 p-2 text-zinc-400 hover:text-white lg:hidden"
               aria-label="Abrir menu"
             >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
+              <MenuIcon />
             </button>
             <h1 className="font-display text-xl font-bold">Dashboard</h1>
           </div>
@@ -109,7 +142,6 @@ export default function DashboardPage() {
         </header>
 
         <main className="flex-1 p-4 sm:p-6">
-          {/* Stats */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {stats.map((stat) => (
               <div
@@ -122,13 +154,12 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* Recent clips */}
           <section className="mt-8">
             <h2 className="mb-4 font-display text-lg font-bold">Cortes recentes</h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {recentClips.map((clip) => (
                 <article
-                  key={clip.title}
+                  key={clip.id}
                   className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50"
                 >
                   <div
@@ -138,7 +169,9 @@ export default function DashboardPage() {
                     <h3 className="text-sm font-semibold">{clip.title}</h3>
                     <p className="mt-2 text-xs text-zinc-500">
                       Viralidade:{" "}
-                      <span className="font-bold text-[#A78BFA]">{clip.score}/100</span>
+                      <span className="font-bold text-[#A78BFA]">
+                        {clip.score}/100
+                      </span>
                     </p>
                   </div>
                 </article>
