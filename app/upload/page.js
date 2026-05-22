@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const menu = [
   { label: "Dashboard", icon: "grid", href: "/dashboard" },
   { label: "Upload Video", icon: "upload", href: "/upload", active: true },
-  { label: "Viral Clips", icon: "film", href: "/dashboard" },
+  { label: "Viral Clips", icon: "film", href: "/clips" },
   { label: "AI Captions", icon: "caption", href: "/dashboard" },
   { label: "Saved Projects", icon: "folder", href: "/dashboard" },
   { label: "Settings", icon: "settings", href: "/dashboard" },
@@ -121,11 +122,14 @@ function getProgressLabel(percent) {
 }
 
 export default function UploadPage() {
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState(null);
   const [progress, setProgress] = useState(0);
-  const [uploading, setUploading] = useState(false);
+  const [statusLabel, setStatusLabel] = useState("");
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState(null);
 
   const [captions, setCaptions] = useState(true);
   const [viralTitles, setViralTitles] = useState(true);
@@ -146,25 +150,79 @@ export default function UploadPage() {
 
     setFile(selected);
     setProgress(0);
-    setUploading(true);
+    setStatusLabel("");
+    setError(null);
   }, []);
 
   useEffect(() => {
-    if (!uploading) return;
+    if (!processing) return;
 
     progressIntervalRef.current = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(progressIntervalRef.current);
-          setUploading(false);
-          return 100;
-        }
-        return prev + Math.random() * 4 + 1;
-      });
-    }, 180);
+      setProgress((prev) => (prev >= 92 ? prev : prev + Math.random() * 3 + 1));
+    }, 200);
 
     return () => clearInterval(progressIntervalRef.current);
-  }, [uploading, file]);
+  }, [processing]);
+
+  async function handleProcessVideo() {
+    if (!file || processing) return;
+
+    setProcessing(true);
+    setError(null);
+    setProgress(8);
+    setStatusLabel("Enviando vídeo...");
+
+    const statusTimer = setTimeout(
+      () => setStatusLabel("Transcrevendo com IA..."),
+      2500
+    );
+    const statusTimer2 = setTimeout(
+      () => setStatusLabel("Detectando momentos virais..."),
+      8000
+    );
+    const statusTimer3 = setTimeout(
+      () => setStatusLabel("Salvando no Supabase..."),
+      14000
+    );
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append(
+        "settings",
+        JSON.stringify({
+          captions,
+          viralTitles,
+          hashtags,
+          duration,
+        })
+      );
+
+      const res = await fetch("/api/process-video", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Falha ao processar vídeo.");
+      }
+
+      setProgress(100);
+      setStatusLabel("Redirecionando para clips...");
+      router.push(`/clips?v=${data.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro inesperado.");
+      setProcessing(false);
+      setProgress(0);
+      setStatusLabel("");
+    } finally {
+      clearTimeout(statusTimer);
+      clearTimeout(statusTimer2);
+      clearTimeout(statusTimer3);
+    }
+  }
 
   const displayProgress = Math.min(Math.round(progress), 100);
 
@@ -276,7 +334,7 @@ export default function UploadPage() {
               Arraste seu vídeo aqui
             </p>
             <p className="mt-1.5 text-xs text-zinc-500 sm:text-sm">
-              MP4, MOV, AVI até 4GB
+              MP4, MOV, AVI até 25MB (limite Whisper)
             </p>
 
             {file ? (
@@ -301,11 +359,19 @@ export default function UploadPage() {
             </button>
           </div>
 
+          {error ? (
+            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {error}
+            </p>
+          ) : null}
+
           {/* Progress */}
-          {file ? (
+          {processing ? (
             <div className="rounded-xl border border-[#1F1F23] bg-zinc-900/30 p-4">
               <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="text-zinc-400">{getProgressLabel(displayProgress)}</span>
+                <span className="text-zinc-400">
+                  {statusLabel || getProgressLabel(displayProgress)}
+                </span>
                 <span className="font-display font-bold text-[#A78BFA]">
                   {displayProgress}%
                 </span>
@@ -364,7 +430,8 @@ export default function UploadPage() {
           {/* CTA */}
           <button
             type="button"
-            disabled={!file || uploading}
+            onClick={handleProcessVideo}
+            disabled={!file || processing}
             className="flex h-[52px] w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40"
             style={{
               background: "linear-gradient(135deg, #7C3AED 0%, #9D5CF6 100%)",
@@ -374,7 +441,7 @@ export default function UploadPage() {
             }}
           >
             <Icon name="bolt" className="h-5 w-5" />
-            Gerar cortes virais
+            {processing ? "Processando..." : "Gerar cortes virais"}
           </button>
         </main>
       </div>

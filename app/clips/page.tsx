@@ -1,7 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+
+const ACCENT = "#a855f7";
+const ACCENT_LIGHT = "#c084fc";
 
 const menu = [
   { label: "Dashboard", icon: "grid", href: "/dashboard" },
@@ -14,59 +26,56 @@ const menu = [
 
 const filters = ["Todos", "Alta viralidade", "Recentes", "Salvos"];
 
-const initialClips = [
-  {
-    id: "1",
-    title: "POV: isso viralizou em 2 horas 🔥",
-    score: 96,
-    duration: "45s",
-    saved: true,
-    gradient: "from-violet-900/90 via-zinc-900 to-black",
-  },
-  {
-    id: "2",
-    title: "ninguém esperava esse plot twist",
-    score: 91,
-    duration: "60s",
-    saved: false,
-    gradient: "from-purple-900/80 via-zinc-950 to-black",
-  },
-  {
-    id: "3",
-    title: "a verdade que ninguém te conta 👀",
-    score: 88,
-    duration: "30s",
-    saved: true,
-    gradient: "from-indigo-900/70 via-zinc-900 to-black",
-  },
-  {
-    id: "4",
-    title: "salva pra ver depois ✨",
-    score: 84,
-    duration: "90s",
-    saved: false,
-    gradient: "from-fuchsia-900/60 via-zinc-900 to-black",
-  },
-  {
-    id: "5",
-    title: "isso mudou tudo pra mim",
-    score: 93,
-    duration: "45s",
-    saved: false,
-    gradient: "from-violet-800/80 via-purple-950 to-black",
-  },
-  {
-    id: "6",
-    title: "reagindo ao momento mais icônico",
-    score: 79,
-    duration: "60s",
-    saved: true,
-    gradient: "from-zinc-800 via-zinc-900 to-black",
-  },
+const gradients = [
+  "from-violet-900/90 via-zinc-900 to-black",
+  "from-purple-900/80 via-zinc-950 to-black",
+  "from-indigo-900/70 via-zinc-900 to-black",
+  "from-fuchsia-900/60 via-zinc-900 to-black",
 ];
 
-function Icon({ name, className = "h-4 w-4" }) {
-  const paths = {
+type AIClip = {
+  title: string;
+  hook: string;
+  viralScore: number;
+  duration: number;
+  reason: string;
+  hashtags: string[];
+};
+
+type DisplayClip = {
+  id: string;
+  title: string;
+  hook: string;
+  score: number;
+  duration: string;
+  reason: string;
+  hashtags: string[];
+  saved: boolean;
+  gradient: string;
+};
+
+function mapAIClip(clip: AIClip, index: number): DisplayClip {
+  return {
+    id: `ai-${Date.now()}-${index}`,
+    title: clip.title,
+    hook: clip.hook,
+    score: Math.min(99, Math.max(70, Math.round(clip.viralScore))),
+    duration: `${clip.duration}s`,
+    reason: clip.reason,
+    hashtags: Array.isArray(clip.hashtags) ? clip.hashtags : [],
+    saved: false,
+    gradient: gradients[index % gradients.length],
+  };
+}
+
+function Icon({
+  name,
+  className = "h-4 w-4",
+}: {
+  name: string;
+  className?: string;
+}) {
+  const paths: Record<string, ReactNode> = {
     grid: (
       <path
         strokeLinecap="round"
@@ -118,6 +127,13 @@ function Icon({ name, className = "h-4 w-4" }) {
         d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
       />
     ),
+    sparkles: (
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+      />
+    ),
     download: (
       <path
         strokeLinecap="round"
@@ -163,27 +179,44 @@ function Icon({ name, className = "h-4 w-4" }) {
   );
 }
 
-function ViralityBar({ score }) {
+function ViralityBar({ score }: { score: number }) {
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-800">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#9D5CF6]"
-          style={{ width: `${score}%` }}
+          className="h-full rounded-full"
+          style={{
+            width: `${score}%`,
+            background: `linear-gradient(90deg, ${ACCENT}, ${ACCENT_LIGHT})`,
+          }}
         />
       </div>
-      <span className="font-display text-xs font-bold text-[#A78BFA]">{score}</span>
+      <span
+        className="font-display text-xs font-bold"
+        style={{ color: ACCENT_LIGHT }}
+      >
+        {score}
+      </span>
     </div>
   );
 }
 
-export default function ClipsPage() {
+function ClipsPageContent() {
+  const searchParams = useSearchParams();
+  const videoId = searchParams.get("v");
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [clips, setClips] = useState(initialClips);
+  const [clips, setClips] = useState<DisplayClip[]>([]);
+  const [transcript, setTranscript] = useState("");
+  const [videoName, setVideoName] = useState<string | null>(null);
+  const [loadingVideo, setLoadingVideo] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState("Todos");
   const [search, setSearch] = useState("");
-  const [deleteId, setDeleteId] = useState(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [toast, setToast] = useState(false);
+  const autoAnalyzeDone = useRef(false);
 
   const filteredClips = useMemo(() => {
     let result = [...clips];
@@ -198,7 +231,12 @@ export default function ClipsPage() {
 
     if (search.trim()) {
       const q = search.toLowerCase();
-      result = result.filter((c) => c.title.toLowerCase().includes(q));
+      result = result.filter(
+        (c) =>
+          c.title.toLowerCase().includes(q) ||
+          c.hook.toLowerCase().includes(q) ||
+          c.hashtags.some((h) => h.toLowerCase().includes(q))
+      );
     }
 
     return result;
@@ -210,7 +248,82 @@ export default function ClipsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  function handleCopyTitle(title) {
+  const runAnalyze = useCallback(async (text: string) => {
+    if (!text.trim()) {
+      setAnalyzeError("Transcrição vazia. Faça upload de um vídeo primeiro.");
+      return;
+    }
+
+    setAnalyzing(true);
+    setAnalyzeError(null);
+
+    try {
+      const res = await fetch("/api/analyze-clips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: text }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Falha ao analisar transcrição.");
+      }
+
+      const mapped = (data.clips as AIClip[]).map((clip, i) =>
+        mapAIClip(clip, i)
+      );
+      setClips(mapped);
+    } catch (err) {
+      setAnalyzeError(
+        err instanceof Error ? err.message : "Erro inesperado."
+      );
+    } finally {
+      setAnalyzing(false);
+    }
+  }, []);
+
+  async function handleAnalyze() {
+    await runAnalyze(transcript);
+  }
+
+  useEffect(() => {
+    if (!videoId || autoAnalyzeDone.current) return;
+
+    async function loadVideoAndAnalyze() {
+      setLoadingVideo(true);
+      setAnalyzeError(null);
+      autoAnalyzeDone.current = true;
+
+      try {
+        const res = await fetch(`/api/videos/${videoId}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Vídeo não encontrado.");
+        }
+
+        if (!data.transcript?.trim()) {
+          throw new Error("Transcrição ainda não disponível. Aguarde e recarregue.");
+        }
+
+        setVideoName(data.file_name ?? null);
+        setTranscript(data.transcript);
+        await runAnalyze(data.transcript);
+      } catch (err) {
+        autoAnalyzeDone.current = false;
+        setAnalyzeError(
+          err instanceof Error ? err.message : "Erro ao carregar vídeo."
+        );
+      } finally {
+        setLoadingVideo(false);
+      }
+    }
+
+    loadVideoAndAnalyze();
+  }, [videoId, runAnalyze]);
+
+  function handleCopyTitle(title: string) {
     navigator.clipboard.writeText(title).catch(() => {});
     setToast(true);
   }
@@ -221,18 +334,13 @@ export default function ClipsPage() {
     setDeleteId(null);
   }
 
-  function handleRegenerate(id) {
-    setClips((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              title: `${c.title.split(" ")[0]}... [regenerado] ✨`,
-              score: Math.min(99, c.score + Math.floor(Math.random() * 5) + 1),
-            }
-          : c
-      )
-    );
+  async function handleRegenerate(id: string) {
+    if (!transcript.trim()) {
+      setAnalyzeError("Cole a transcrição para regenerar clips.");
+      return;
+    }
+    await handleAnalyze();
+    void id;
   }
 
   return (
@@ -252,7 +360,10 @@ export default function ClipsPage() {
         }`}
       >
         <div className="flex h-14 items-center gap-2 border-b border-[#1F1F23] px-4">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7C3AED] text-white">
+          <span
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-white"
+            style={{ background: ACCENT }}
+          >
             <Icon name="bolt" className="h-4 w-4" />
           </span>
           <span className="font-display text-base font-bold">Trendify AI</span>
@@ -266,13 +377,18 @@ export default function ClipsPage() {
               onClick={() => setSidebarOpen(false)}
               className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors ${
                 item.active
-                  ? "bg-[#7C3AED]/12 text-[#A78BFA]"
+                  ? "text-[#c084fc]"
                   : "text-zinc-500 hover:bg-zinc-900/80 hover:text-zinc-200"
               }`}
+              style={
+                item.active
+                  ? { background: `${ACCENT}1f` }
+                  : undefined
+              }
             >
               <Icon
                 name={item.icon}
-                className={`h-4 w-4 shrink-0 ${item.active ? "text-[#7C3AED]" : ""}`}
+                className={`h-4 w-4 shrink-0 ${item.active ? "text-[#a855f7]" : ""}`}
               />
               {item.label}
             </Link>
@@ -281,7 +397,10 @@ export default function ClipsPage() {
 
         <div className="border-t border-[#1F1F23] p-3">
           <div className="flex items-center gap-2.5 rounded-lg bg-zinc-900/50 px-2.5 py-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#7C3AED] text-[10px] font-bold">
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+              style={{ background: ACCENT }}
+            >
               U
             </div>
             <div className="min-w-0">
@@ -293,15 +412,15 @@ export default function ClipsPage() {
       </aside>
 
       <div className="relative flex min-w-0 flex-1 flex-col">
-        {/* Toast */}
         <div
           className={`pointer-events-none fixed left-1/2 top-4 z-[60] -translate-x-1/2 transition-all duration-300 ${
-            toast
-              ? "translate-y-0 opacity-100"
-              : "-translate-y-4 opacity-0"
+            toast ? "translate-y-0 opacity-100" : "-translate-y-4 opacity-0"
           }`}
         >
-          <div className="rounded-xl border border-[#7C3AED]/40 bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_32px_rgba(124,58,237,0.35)]">
+          <div
+            className="rounded-xl border bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white shadow-lg"
+            style={{ borderColor: `${ACCENT}66` }}
+          >
             ✓ Título copiado!
           </div>
         </div>
@@ -327,9 +446,62 @@ export default function ClipsPage() {
         </header>
 
         <main className="flex-1 p-3 sm:p-5">
+          {/* AI Generator */}
+          <section
+            className="mb-5 rounded-xl border border-[#1F1F23] p-4"
+            style={{ background: "rgba(168, 85, 247, 0.05)" }}
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <span style={{ color: ACCENT }}>
+                <Icon name="sparkles" className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="font-display text-sm font-bold sm:text-base">
+                  Gerador de clips virais com IA
+                </h2>
+                {videoName ? (
+                  <p className="text-xs text-zinc-500">Vídeo: {videoName}</p>
+                ) : null}
+              </div>
+            </div>
+            {loadingVideo ? (
+              <p className="mb-3 text-sm text-[#c084fc]">
+                Carregando transcrição e iniciando análise...
+              </p>
+            ) : null}
+            <textarea
+              value={transcript}
+              onChange={(e) => setTranscript(e.target.value)}
+              readOnly={!!videoId && loadingVideo}
+              placeholder="Cole aqui a transcrição do seu vídeo (podcast, live, YouTube)..."
+              rows={4}
+              className="w-full resize-none rounded-xl border border-[#1F1F23] bg-zinc-900/60 px-3 py-2.5 text-sm text-white placeholder-zinc-500 outline-none transition-colors focus:border-[#a855f7] focus:ring-1 focus:ring-[#a855f7]/30"
+            />
+            {analyzeError ? (
+              <p className="mt-2 text-xs text-red-400">{analyzeError}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleAnalyze}
+              disabled={analyzing || loadingVideo}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold text-white transition-all disabled:opacity-60 sm:w-auto sm:px-6"
+              style={{
+                background: `linear-gradient(135deg, ${ACCENT}, ${ACCENT_LIGHT})`,
+                boxShadow: `0 4px 24px ${ACCENT}55`,
+              }}
+            >
+              <Icon name="sparkles" className="h-4 w-4" />
+              {loadingVideo
+                ? "Carregando transcrição..."
+                : analyzing
+                  ? "Analisando com IA..."
+                  : "Gerar 4 clips virais"}
+            </button>
+          </section>
+
           {/* Filters */}
           <div className="mb-4 space-y-3">
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <div className="flex gap-2 overflow-x-auto pb-1">
               {filters.map((f) => (
                 <button
                   key={f}
@@ -337,9 +509,17 @@ export default function ClipsPage() {
                   onClick={() => setActiveFilter(f)}
                   className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all sm:text-sm ${
                     activeFilter === f
-                      ? "bg-[#7C3AED] text-white shadow-[0_4px_16px_rgba(124,58,237,0.35)]"
-                      : "border border-[#1F1F23] text-zinc-400 hover:border-[#7C3AED]/40 hover:text-white"
+                      ? "text-white"
+                      : "border border-[#1F1F23] text-zinc-400 hover:text-white"
                   }`}
+                  style={
+                    activeFilter === f
+                      ? {
+                          background: ACCENT,
+                          boxShadow: `0 4px 16px ${ACCENT}55`,
+                        }
+                      : undefined
+                  }
                 >
                   {f}
                 </button>
@@ -356,7 +536,7 @@ export default function ClipsPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar clips..."
-                className="w-full rounded-xl border border-[#1F1F23] bg-zinc-900/40 py-2.5 pl-10 pr-4 text-sm text-white placeholder-zinc-500 outline-none transition-colors focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED]/30"
+                className="w-full rounded-xl border border-[#1F1F23] bg-zinc-900/40 py-2.5 pl-10 pr-4 text-sm text-white placeholder-zinc-500 outline-none transition-colors focus:border-[#a855f7] focus:ring-1 focus:ring-[#a855f7]/30"
               />
             </div>
           </div>
@@ -364,7 +544,11 @@ export default function ClipsPage() {
           {/* Grid */}
           {filteredClips.length === 0 ? (
             <p className="py-12 text-center text-sm text-zinc-500">
-              Nenhum clip encontrado.
+              {clips.length === 0
+                ? loadingVideo || analyzing
+                  ? "Gerando seus clips virais com IA..."
+                  : "Faça upload em /upload ou cole uma transcrição."
+                : "Nenhum clip encontrado."}
             </p>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
@@ -377,10 +561,22 @@ export default function ClipsPage() {
                     <div
                       className={`aspect-[9/16] w-full bg-gradient-to-b ${clip.gradient}`}
                     >
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_15%,rgba(124,58,237,0.2),transparent_55%)]" />
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          background:
+                            "radial-gradient(circle at 50% 15%, rgba(168,85,247,0.25), transparent 55%)",
+                        }}
+                      />
                       <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent" />
+                      <p className="absolute bottom-10 left-2 right-2 line-clamp-3 text-[10px] font-medium leading-tight text-white/80">
+                        {clip.hook}
+                      </p>
                     </div>
-                    <span className="absolute right-2 top-2 rounded-md bg-[#7C3AED] px-2 py-0.5 text-[10px] font-bold tracking-wide text-white shadow-lg">
+                    <span
+                      className="absolute right-2 top-2 rounded-md px-2 py-0.5 text-[10px] font-bold tracking-wide text-white shadow-lg"
+                      style={{ background: ACCENT }}
+                    >
                       VIRAL ✦
                     </span>
                     <span className="absolute bottom-2 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300 backdrop-blur-sm">
@@ -394,11 +590,22 @@ export default function ClipsPage() {
                     <h3 className="mt-2.5 line-clamp-2 text-xs font-semibold leading-snug text-zinc-100 sm:text-sm">
                       {clip.title}
                     </h3>
+                    <p className="mt-1.5 line-clamp-2 text-[10px] text-zinc-500">
+                      {clip.reason}
+                    </p>
+                    {clip.hashtags.length > 0 ? (
+                      <p
+                        className="mt-1 truncate text-[10px] font-medium"
+                        style={{ color: ACCENT_LIGHT }}
+                      >
+                        {clip.hashtags.join(" ")}
+                      </p>
+                    ) : null}
 
                     <div className="mt-3 grid grid-cols-2 gap-1.5">
                       <button
                         type="button"
-                        className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:border-[#7C3AED]/40 hover:bg-[#7C3AED]/10 hover:text-white"
+                        className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:border-[#a855f7]/40 hover:bg-[#a855f7]/10 hover:text-white"
                       >
                         <Icon name="download" className="h-3 w-3" />
                         Download
@@ -406,7 +613,7 @@ export default function ClipsPage() {
                       <button
                         type="button"
                         onClick={() => handleCopyTitle(clip.title)}
-                        className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:border-[#7C3AED]/40 hover:bg-[#7C3AED]/10 hover:text-white"
+                        className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:border-[#a855f7]/40 hover:bg-[#a855f7]/10 hover:text-white"
                       >
                         <Icon name="copy" className="h-3 w-3" />
                         Copiar
@@ -414,7 +621,8 @@ export default function ClipsPage() {
                       <button
                         type="button"
                         onClick={() => handleRegenerate(clip.id)}
-                        className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:border-[#7C3AED]/40 hover:bg-[#7C3AED]/10 hover:text-white"
+                        disabled={analyzing}
+                        className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:border-[#a855f7]/40 hover:bg-[#a855f7]/10 hover:text-white disabled:opacity-50"
                       >
                         <Icon name="refresh" className="h-3 w-3" />
                         Regenerar
@@ -436,11 +644,12 @@ export default function ClipsPage() {
         </main>
       </div>
 
-      {/* Delete modal */}
       {deleteId ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl border border-[#1F1F23] bg-zinc-900 p-6 shadow-2xl">
-            <h2 className="font-display text-lg font-bold">Deseja apagar este clip?</h2>
+            <h2 className="font-display text-lg font-bold">
+              Deseja apagar este clip?
+            </h2>
             <p className="mt-2 text-sm text-zinc-500">
               Esta ação não pode ser desfeita.
             </p>
@@ -464,5 +673,21 @@ export default function ClipsPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ClipsPageFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#0B0B0B] text-zinc-400">
+      Carregando clips...
+    </div>
+  );
+}
+
+export default function ClipsPage() {
+  return (
+    <Suspense fallback={<ClipsPageFallback />}>
+      <ClipsPageContent />
+    </Suspense>
   );
 }
