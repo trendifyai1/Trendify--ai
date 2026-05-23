@@ -5,17 +5,21 @@ const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { spawn } = require("child_process");
+const readline = require("readline");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE) || 500 * 1024 * 1024;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+const WHISPER_MODEL = process.env.WHISPER_MODEL || "base";
 
 const ROOT_DIR = __dirname;
 const UPLOAD_DIR = path.join(ROOT_DIR, "uploads");
 const OUTPUT_DIR = path.join(ROOT_DIR, "outputs");
+const TMP_DIR = path.join(ROOT_DIR, "tmp");
 
-for (const dir of [UPLOAD_DIR, OUTPUT_DIR]) {
+for (const dir of [UPLOAD_DIR, OUTPUT_DIR, TMP_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
@@ -40,13 +44,88 @@ const upload = multer({
   storage,
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("video/") || file.mimetype === "application/octet-stream") {
+    const allowed =
+      file.mimetype.startsWith("video/") ||
+      file.mimetype.startsWith("audio/") ||
+      file.mimetype === "application/octet-stream";
+
+    if (allowed) {
       cb(null, true);
       return;
     }
-    cb(new Error("Apenas arquivos de vídeo são permitidos."));
+
+    cb(new Error("Apenas arquivos de vídeo ou áudio são permitidos."));
   },
 });
+
+let whisperReady = false;
+let whisperSeq = 0;
+const whisperPending = new Map();
+
+const whisperProcess = spawn("python3", [path.join(ROOT_DIR, "whisper_service.py")], {
+  stdio: ["pipe", "pipe", "inherit"],
+  env: { ...process.env, WHISPER_MODEL },
+});
+
+const whisperReader = readline.createInterface({ input: whisperProcess.stdout });
+
+whisperReader.on("line", (line) => {
+  try {
+    const message = JSON.parse(line);
+
+    if (message.status === "ready") {
+      whisperReady = true;
+      console.log(`[whisper] Modelo "${message.model}" pronto.`);
+      return;
+    }
+
+    if (message.status === "loading") {
+      console.log(`[whisper] Carregando modelo "${message.model}"...`);
+      return;
+    }
+
+    if (message.id != null && whisperPending.has(message.id)) {
+      whisperPending.get(message.id)(message);
+      whisperPending.delete(message.id);
+    }
+  } catch (error) {
+    console.error("[whisper] Resposta inválida:", error);
+  }
+});
+
+whisperProcess.on("exit", (code) => {
+  whisperReady = false;
+  console.error(`[whisper] Processo encerrado com código ${code}.`);
+});
+
+function transcribeAudio(audioPath, language = "pt") {
+  return new Promise((resolve, reject) => {
+    if (!whisperReady) {
+      reject(new Error("Whisper ainda está carregando. Tente novamente em instantes."));
+      return;
+    }
+
+    const id = ++whisperSeq;
+
+    const timeout = setTimeout(() => {
+      whisperPending.delete(id);
+      reject(new Error("Timeout na transcrição com Whisper."));
+    }, 10 * 60 * 1000);
+
+    whisperPending.set(id, (message) => {
+      clearTimeout(timeout);
+      if (message.error) {
+        reject(new Error(message.error));
+        return;
+      }
+      resolve(message.text || "");
+    });
+
+    whisperProcess.stdin.write(
+      `${JSON.stringify({ id, audio: audioPath, language })}\n`
+    );
+  });
+}
 
 function sanitizeFilename(value, fallback) {
   const cleaned = String(value || fallback)
@@ -95,6 +174,20 @@ function parseClips(raw) {
   });
 }
 
+function extractAudio(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .noVideo()
+      .audioCodec("pcm_s16le")
+      .audioFrequency(16000)
+      .audioChannels(1)
+      .output(outputPath)
+      .on("end", () => resolve(outputPath))
+      .on("error", (error) => reject(error))
+      .run();
+  });
+}
+
 function cutClip(inputPath, outputPath, start, duration) {
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
@@ -132,7 +225,53 @@ app.get("/health", (_req, res) => {
     status: "ok",
     service: "trendify-video-server",
     ffmpeg: "ready",
+    whisper: whisperReady ? "ready" : "loading",
+    whisperModel: WHISPER_MODEL,
   });
+});
+
+app.post("/transcribe", upload.single("video"), async (req, res) => {
+  const uploadedPath = req.file?.path;
+  const jobId = crypto.randomUUID();
+  const audioPath = path.join(TMP_DIR, `${jobId}.wav`);
+  const language =
+    typeof req.body.language === "string" && req.body.language.trim()
+      ? req.body.language.trim()
+      : "pt";
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Campo "video" é obrigatório.' });
+    }
+
+    if (!whisperReady) {
+      return res.status(503).json({
+        error: "Whisper ainda está carregando. Tente novamente em instantes.",
+      });
+    }
+
+    await extractAudio(uploadedPath, audioPath);
+    const transcript = await transcribeAudio(audioPath, language);
+
+    return res.json({
+      transcript,
+      language,
+      model: WHISPER_MODEL,
+      source: {
+        originalName: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+      },
+    });
+  } catch (error) {
+    console.error("[transcribe]", error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : "Erro ao transcrever vídeo.",
+    });
+  } finally {
+    removeFile(uploadedPath);
+    removeFile(audioPath);
+  }
 });
 
 app.post("/cut", upload.single("video"), async (req, res) => {

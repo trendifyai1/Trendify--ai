@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
-import OpenAI, { toFile } from "openai";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const WHISPER_MAX_BYTES = 25 * 1024 * 1024;
+const MAX_FILE_BYTES = 500 * 1024 * 1024;
+
+function getVideoServerUrl() {
+  const url =
+    process.env.VIDEO_SERVER_URL?.trim() ||
+    process.env.NEXT_PUBLIC_VIDEO_SERVER_URL?.trim();
+
+  if (!url) {
+    throw new Error("VIDEO_SERVER_URL não configurada.");
+  }
+
+  return url.replace(/\/$/, "");
+}
 
 export async function POST(request: Request) {
   try {
@@ -20,25 +31,15 @@ export async function POST(request: Request) {
       );
     }
 
-    if (file.size > WHISPER_MAX_BYTES) {
+    if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { error: "O vídeo deve ter no máximo 25MB para transcrição com Whisper." },
+        { error: "O vídeo deve ter no máximo 500MB." },
         { status: 400 }
       );
     }
 
     const settings =
-      typeof settingsRaw === "string"
-        ? JSON.parse(settingsRaw)
-        : {};
-
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY não configurada." },
-        { status: 500 }
-      );
-    }
+      typeof settingsRaw === "string" ? JSON.parse(settingsRaw) : {};
 
     const supabase = getSupabaseAdmin();
     const videoId = crypto.randomUUID();
@@ -81,14 +82,34 @@ export async function POST(request: Request) {
       );
     }
 
-    const openai = new OpenAI({ apiKey: openaiKey });
-    const transcription = await openai.audio.transcriptions.create({
-      file: await toFile(buffer, file.name, { type: file.type || "video/mp4" }),
-      model: "whisper-1",
-      language: "pt",
+    const videoServerUrl = getVideoServerUrl();
+    const transcribeForm = new FormData();
+    transcribeForm.append("video", new Blob([buffer], { type: file.type || "video/mp4" }), file.name);
+    transcribeForm.append("language", "pt");
+
+    const transcribeRes = await fetch(`${videoServerUrl}/transcribe`, {
+      method: "POST",
+      body: transcribeForm,
     });
 
-    const transcript = transcription.text?.trim() || "";
+    const transcribeData = (await transcribeRes.json()) as {
+      transcript?: string;
+      error?: string;
+    };
+
+    if (!transcribeRes.ok) {
+      console.error("[process-video] transcribe", transcribeData);
+      return NextResponse.json(
+        {
+          error:
+            transcribeData.error ||
+            "Falha ao transcrever vídeo no servidor de vídeo.",
+        },
+        { status: transcribeRes.status }
+      );
+    }
+
+    const transcript = transcribeData.transcript?.trim() || "";
 
     const { error: updateError } = await supabase
       .from("videos")

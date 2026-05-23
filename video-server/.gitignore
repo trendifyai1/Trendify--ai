@@ -1,5 +1,6 @@
 node_modules/
 uploads/
 outputs/
+tmp/
 .env
 .env.local

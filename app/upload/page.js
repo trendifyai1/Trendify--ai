@@ -426,7 +426,7 @@ export default function UploadPage() {
               Arraste seu vídeo aqui
             </p>
             <p className="mt-1.5 text-xs text-zinc-500 sm:text-sm">
-              MP4, MOV, AVI até 25MB (limite Whisper)
+              MP4, MOV, AVI até 500MB
             </p>
 
             {file ? (
