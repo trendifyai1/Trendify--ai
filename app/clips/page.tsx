@@ -11,6 +11,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { saveProject } from "@/lib/saved-projects";
 
 const ACCENT = "#a855f7";
 const ACCENT_LIGHT = "#c084fc";
@@ -20,7 +21,7 @@ const menu = [
   { label: "Upload Video", icon: "upload", href: "/upload" },
   { label: "Viral Clips", icon: "film", href: "/clips", active: true },
   { label: "AI Captions", icon: "caption", href: "/dashboard" },
-  { label: "Saved Projects", icon: "folder", href: "/dashboard" },
+  { label: "Saved Projects", icon: "folder", href: "/saved" },
   { label: "Settings", icon: "settings", href: "/dashboard" },
 ];
 
@@ -52,9 +53,10 @@ type DisplayClip = {
   hashtags: string[];
   saved: boolean;
   gradient: string;
+  downloadUrl?: string;
 };
 
-function mapAIClip(clip: AIClip, index: number): DisplayClip {
+function mapAIClip(clip: AIClip, index: number, downloadUrl?: string): DisplayClip {
   return {
     id: `ai-${Date.now()}-${index}`,
     title: clip.title,
@@ -65,6 +67,7 @@ function mapAIClip(clip: AIClip, index: number): DisplayClip {
     hashtags: Array.isArray(clip.hashtags) ? clip.hashtags : [],
     saved: false,
     gradient: gradients[index % gradients.length],
+    downloadUrl,
   };
 }
 
@@ -258,6 +261,29 @@ function ClipsPageContent() {
     setAnalyzeError(null);
 
     try {
+      if (videoId) {
+        const cached = sessionStorage.getItem(`trendify-video-job-${videoId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached) as {
+            aiClips: AIClip[];
+            cutClips: { downloadUrl?: string }[];
+          };
+
+          const mapped = parsed.aiClips.map((clip, i) =>
+            mapAIClip(clip, i, parsed.cutClips[i]?.downloadUrl)
+          );
+          setClips(mapped);
+          saveProject({
+            name: videoName ?? `Projeto ${new Date().toLocaleDateString("pt-BR")}`,
+            clipCount: mapped.length,
+            gradient: mapped[0]?.gradient ?? gradients[0],
+            videoId,
+          });
+          sessionStorage.removeItem(`trendify-video-job-${videoId}`);
+          return;
+        }
+      }
+
       const res = await fetch("/api/analyze-clips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -274,6 +300,12 @@ function ClipsPageContent() {
         mapAIClip(clip, i)
       );
       setClips(mapped);
+      saveProject({
+        name: videoName ?? `Projeto ${new Date().toLocaleDateString("pt-BR")}`,
+        clipCount: mapped.length,
+        gradient: mapped[0]?.gradient ?? gradients[0],
+        videoId: videoId ?? null,
+      });
     } catch (err) {
       setAnalyzeError(
         err instanceof Error ? err.message : "Erro inesperado."
@@ -281,7 +313,7 @@ function ClipsPageContent() {
     } finally {
       setAnalyzing(false);
     }
-  }, []);
+  }, [videoName, videoId]);
 
   async function handleAnalyze() {
     await runAnalyze(transcript);
@@ -603,13 +635,27 @@ function ClipsPageContent() {
                     ) : null}
 
                     <div className="mt-3 grid grid-cols-2 gap-1.5">
-                      <button
-                        type="button"
-                        className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:border-[#a855f7]/40 hover:bg-[#a855f7]/10 hover:text-white"
-                      >
-                        <Icon name="download" className="h-3 w-3" />
-                        Download
-                      </button>
+                      {clip.downloadUrl ? (
+                        <a
+                          href={clip.downloadUrl}
+                          download
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:border-[#a855f7]/40 hover:bg-[#a855f7]/10 hover:text-white"
+                        >
+                          <Icon name="download" className="h-3 w-3" />
+                          Download
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="flex items-center justify-center gap-1 rounded-lg border border-[#1F1F23] py-1.5 text-[10px] font-medium text-zinc-600"
+                        >
+                          <Icon name="download" className="h-3 w-3" />
+                          Download
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleCopyTitle(clip.title)}

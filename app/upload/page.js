@@ -9,16 +9,16 @@ const menu = [
   { label: "Upload Video", icon: "upload", href: "/upload", active: true },
   { label: "Viral Clips", icon: "film", href: "/clips" },
   { label: "AI Captions", icon: "caption", href: "/dashboard" },
-  { label: "Saved Projects", icon: "folder", href: "/dashboard" },
+  { label: "Saved Projects", icon: "folder", href: "/saved" },
   { label: "Settings", icon: "settings", href: "/dashboard" },
 ];
 
 const durations = ["30s", "45s", "60s", "90s"];
 
 const progressStages = [
-  { until: 35, label: "Transcrevendo com IA..." },
-  { until: 70, label: "Detectando momentos virais..." },
-  { until: 100, label: "Gerando cortes..." },
+  { until: 25, label: "Transcrevendo com IA..." },
+  { until: 55, label: "Detectando momentos virais..." },
+  { until: 100, label: "Cortando clips no servidor..." },
 ];
 
 function Icon({ name, className = "h-4 w-4" }) {
@@ -121,6 +121,63 @@ function getProgressLabel(percent) {
   return progressStages[progressStages.length - 1].label;
 }
 
+function parseDurationSeconds(value) {
+  const match = String(value).match(/(\d+)/);
+  return match ? Number(match[1]) : 60;
+}
+
+function getVideoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    const url = URL.createObjectURL(file);
+
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(video.duration);
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Não foi possível ler a duração do vídeo."));
+    };
+
+    video.src = url;
+  });
+}
+
+function buildCutClips(aiClips, videoDurationSec, preferredDuration) {
+  const maxDuration = parseDurationSeconds(preferredDuration);
+  const segment = videoDurationSec / (aiClips.length + 1);
+
+  return aiClips.map((clip, index) => {
+    const duration = Math.min(
+      Number(clip.duration) || maxDuration,
+      maxDuration,
+      90
+    );
+    const center = segment * (index + 1);
+    const start = Math.max(
+      0,
+      Math.min(center - duration / 2, Math.max(0, videoDurationSec - duration))
+    );
+
+    return {
+      title: clip.title,
+      start: Math.round(start * 10) / 10,
+      duration,
+    };
+  });
+}
+
+function getVideoServerUrl() {
+  const url = process.env.NEXT_PUBLIC_VIDEO_SERVER_URL?.replace(/\/$/, "");
+  if (!url) {
+    throw new Error("Servidor de vídeo não configurado.");
+  }
+  return url;
+}
+
 export default function UploadPage() {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -169,23 +226,16 @@ export default function UploadPage() {
 
     setProcessing(true);
     setError(null);
-    setProgress(8);
-    setStatusLabel("Enviando vídeo...");
-
-    const statusTimer = setTimeout(
-      () => setStatusLabel("Transcrevendo com IA..."),
-      2500
-    );
-    const statusTimer2 = setTimeout(
-      () => setStatusLabel("Detectando momentos virais..."),
-      8000
-    );
-    const statusTimer3 = setTimeout(
-      () => setStatusLabel("Salvando no Supabase..."),
-      14000
-    );
+    setProgress(5);
+    setStatusLabel("Preparando vídeo...");
 
     try {
+      const videoServerUrl = getVideoServerUrl();
+      const videoDuration = await getVideoDuration(file);
+
+      setProgress(12);
+      setStatusLabel("Enviando vídeo...");
+
       const formData = new FormData();
       formData.append("file", file);
       formData.append(
@@ -198,29 +248,71 @@ export default function UploadPage() {
         })
       );
 
-      const res = await fetch("/api/process-video", {
+      const processRes = await fetch("/api/process-video", {
         method: "POST",
         body: formData,
       });
 
-      const data = await res.json();
+      const processData = await processRes.json();
 
-      if (!res.ok) {
-        throw new Error(data.error || "Falha ao processar vídeo.");
+      if (!processRes.ok) {
+        throw new Error(processData.error || "Falha ao processar vídeo.");
       }
+
+      setProgress(38);
+      setStatusLabel("Detectando momentos virais...");
+
+      const analyzeRes = await fetch("/api/analyze-clips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: processData.transcript }),
+      });
+
+      const analyzeData = await analyzeRes.json();
+
+      if (!analyzeRes.ok) {
+        throw new Error(analyzeData.error || "Falha ao analisar transcrição.");
+      }
+
+      setProgress(62);
+      setStatusLabel("Cortando clips no servidor...");
+
+      const cutSpecs = buildCutClips(analyzeData.clips, videoDuration, duration);
+      const cutForm = new FormData();
+      cutForm.append("video", file);
+      cutForm.append("clips", JSON.stringify(cutSpecs));
+
+      const cutRes = await fetch(`${videoServerUrl}/cut`, {
+        method: "POST",
+        body: cutForm,
+      });
+
+      const cutData = await cutRes.json();
+
+      if (!cutRes.ok) {
+        throw new Error(cutData.error || "Falha ao cortar vídeo no servidor.");
+      }
+
+      sessionStorage.setItem(
+        `trendify-video-job-${processData.id}`,
+        JSON.stringify({
+          jobId: cutData.jobId,
+          aiClips: analyzeData.clips,
+          cutClips: cutData.clips.map((clip) => ({
+            ...clip,
+            downloadUrl: `${videoServerUrl}${clip.downloadUrl}`,
+          })),
+        })
+      );
 
       setProgress(100);
       setStatusLabel("Redirecionando para clips...");
-      router.push(`/clips?v=${data.id}`);
+      router.push(`/clips?v=${processData.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado.");
       setProcessing(false);
       setProgress(0);
       setStatusLabel("");
-    } finally {
-      clearTimeout(statusTimer);
-      clearTimeout(statusTimer2);
-      clearTimeout(statusTimer3);
     }
   }
 

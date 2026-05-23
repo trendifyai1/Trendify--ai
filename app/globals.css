@@ -65,3 +65,69 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(-18px) translateX(6px);
+  }
+}
+
+@keyframes landing-pulse-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes landing-shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+.landing-particle {
+  animation: landing-float 6s ease-in-out infinite;
+}
+
+.landing-glow-orb {
+  animation: landing-pulse-glow 8s ease-in-out infinite;
+}
+
+.landing-shimmer-text {
+  background-size: 200% auto;
+  animation: landing-shimmer 4s linear infinite;
+}
+
+@keyframes landing-float-card {
+  0%,
+  100% {
+    margin-top: 0;
+  }
+  50% {
+    margin-top: -12px;
+  }
+}
+
+.landing-float-card {
+  animation: landing-float-card 5s ease-in-out infinite;
+}
+
+.landing-float-card-delay-1 {
+  animation-delay: 0.8s;
+}
+
+.landing-float-card-delay-2 {
+  animation-delay: 1.6s;
+}
